@@ -569,7 +569,7 @@ if (count($db_positions) > 0) {
 		$n = 0;
 		for($i=0;$i<count($queue_orders);$i++) {
 			for ($j=0;$j<count($db_orders);$j++) {
-				if ($queue_orders[$i][['symbol']] == $db_orders[$j]['symbol'] && $db_orders[$j]['side'] == "SELL") {
+				if ($queue_orders[$i]['symbol'] == $db_orders[$j]['symbol'] && $db_orders[$j]['side'] == "SELL") {
 					/* Если данная пара присутствует в сигналах, запоминаем ее */
 					$n = $j;
 					break;
