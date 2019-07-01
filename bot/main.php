@@ -123,6 +123,22 @@ if ($db->num_rows($result) > 0) {
 	$db_positions = [];
 }
 
+/* Получаем историю из хранилища за последние сутки */
+$last_day = $current_time - 86400;
+$result = $db->query("SELECT * FROM `history` WHERE `set_id` = '$set_id' AND `close_time` > '$last_day'");
+if ($debug) {echo 'prepare: --Получаем историю из хранилища<br>';}
+if ($db->num_rows($result) > 0) {
+	if ($debug) {echo 'prepare: --История из хранилища получена<br>';}
+	$i = 0;
+	while($row = $db->get_array($result)) {
+		$db_history[$i] = $row;
+		$i++;
+	}
+} else {
+	if ($debug) {echo 'prepare: --История из хранилища не обнаружена<br>';}
+	$db_history = [];
+}
+
 /* Получаем ордера из биржи */
 $url = $ex_api . "?mode=getOrders&api_key=$api_key&api_secret=$api_secret&arg=$arg";
 if ($debug) {echo 'prepare: --Получаем ордера из биржи<br>';}
@@ -187,7 +203,7 @@ function send_buy_order($symbol,$price,$qty) {
 	if ($funds > $sum) {
 		/* Подготавливаем ссылку */
 		$send_url = $ex_api . "?mode=sendOrder&api_key=$api_key&api_secret=$api_secret&symbol=$symbol&side=buy&qty=".number_format($qty,$around_qty,'.','')."&price=".number_format($price,$around_price,'.','')."&arg=$arg";
-		if ($debug) {echo 'send_buy: ссылка '.$send_url.'<br>';}
+		if ($debug) {echo 'send_buy: Покупка '.$symbol.'<br>';}
 		$fcontents = implode ('', file ($send_url));
 		$fcontents = json_decode($fcontents, true);
 		if ($fcontents['status'] == 1) {
@@ -224,9 +240,14 @@ function send_sell_order($symbol,$price,$qty) {
 		if ($debug) {echo 'send_sell: баланса недостаточно, продаем все что есть<br>';}
 		$qty = $funds;
 	}
+	/* Проверяем, что при округлении по правилам биржи количество не округлилось в большую сторону */
+	if (number_format($qty,$around_qty,'.','') > $qty) {
+		/* Если количество после округления стало больше, вычитаем величину шага */
+		$qty -= $row->step_qty;
+	}
 	/* Подготавливаем ссылку */
 	$send_url = $ex_api . "?mode=sendOrder&api_key=$api_key&api_secret=$api_secret&symbol=$symbol&side=sell&qty=".number_format($qty,$around_qty,'.','')."&price=".number_format($price,$around_price,'.','')."&arg=$arg";
-	if ($debug) {echo 'send_sell: ссылка '.$send_url.'<br>';}
+	if ($debug) {echo 'send_sell: Продажа '.$symbol.'<br>';}
 	$fcontents = implode ('', file ($send_url));
 	$fcontents = json_decode($fcontents, true);
 	if ($fcontents['status'] == 1) {
@@ -291,6 +312,32 @@ if (count($open_signals) > 0) {
 if ($debug) {
 	echo 'signals: --Поступило '.$num.' сигналов<br>';
 	echo 'signals: --Перебрано '.count($db_orders).' ордеров<br>';
+	echo 'signals: --Вышло '.count($open_signals).' сигналов<br>';
+	echo 'signals: --Сравниваем сигналы и историю<br>';
+}
+
+$num = 0;
+/* Если сигналы остались, проверяем были ли за последние сутки отрицательные сделки */
+if (count($open_signals) > 0) {
+	$num = count($open_signals);
+	/* Перебираем все сигналы и закрытые позиции, смотрим были ли отрицательные закрытые позиции в течении суток */
+	if (count($db_history) > 0) {
+		/* Перебираем все закрытые позиции */
+		for ($i=0;$i<count($db_history);$i++) {
+			/* Перебираем все сигналы */
+			for ($j=0;$j<count($open_signals);$j++) {
+				/* Если в сигналах присутствует пара, по которой был отрицательный профит */
+				if ($db_history[$i]['symbol'] == $open_signals[$j]['symbol'] && ($db_history[$i]['close_price'] - $db_history[$i]['open_price']) < 0) {
+					/* Удаляем ее из списка сигналов */
+					array_splice($open_signals,$j,1);
+				}
+			}
+		}
+	}
+}
+if ($debug) {
+	echo 'signals: --Поступило '.$num.' сигналов<br>';
+	echo 'signals: --Перебрано '.count($db_history).' закрытых позиций<br>';
 	echo 'signals: --Вышло '.count($open_signals).' сигналов<br>';
 }
 
